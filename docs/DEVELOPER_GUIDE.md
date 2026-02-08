@@ -7,6 +7,22 @@
 ## Project Structure
 
 ```
+cli/
+├── main.go                      # Entry point
+├── internal/
+│   ├── client/
+│   │   └── client.go            # HTTP client, token storage, auto-refresh
+│   └── cmd/
+│       ├── root.go              # Root command, global setup
+│       ├── login.go             # Login/register commands
+│       ├── logout.go            # Logout command
+│       ├── notes.go             # Notes subcommands (list/show/create/edit/delete)
+│       ├── todos.go             # Todos subcommands (list/show/create/complete/delete)
+│       └── search.go            # Search command
+├── go.mod
+├── go.sum
+└── Makefile
+
 server/
 ├── cmd/notesd/main.go           # Entry point
 ├── internal/
@@ -37,16 +53,18 @@ server/
 
 ## Building
 
+### Server
+
 ```sh
 cd server
 make build    # produces ./notesd binary
 ```
 
-Or directly:
+### CLI Client
 
 ```sh
-cd server
-go build -o notesd ./cmd/notesd
+cd cli
+make build    # produces ./notesd binary
 ```
 
 ## Configuration
@@ -104,6 +122,13 @@ services or test data fixtures are required.
 | `github.com/golang-jwt/jwt/v5` | JWT token signing and validation |
 | `golang.org/x/crypto` | bcrypt password hashing |
 | `github.com/BurntSushi/toml` | TOML configuration parsing |
+
+### CLI (`cli/`)
+
+| Package | Purpose |
+|---|---|
+| `github.com/spf13/cobra` | CLI command framework |
+| `golang.org/x/term` | Terminal password input without echo |
 
 ## API Endpoints
 

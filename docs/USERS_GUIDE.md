@@ -50,3 +50,50 @@ When the same note is edited on two devices while offline, the most recent edit
 wins when sync happens. You won't lose data — the newer version is kept.
 
 Deleted items are synced across all devices so removals propagate everywhere.
+
+## Command-Line Interface
+
+The CLI lets you manage notes and todos from the terminal.
+
+### Setup
+
+Register an account and log in:
+
+```
+notesd register -s http://your-server:8080
+notesd login -s http://your-server:8080
+```
+
+After login, the server URL and credentials are stored in `~/.notesd/` and
+reused for subsequent commands.
+
+### Managing Notes
+
+```
+notesd notes list                   # list all notes
+notesd notes create -t "Title"      # create with title
+notesd notes create                 # create in $EDITOR
+notesd notes show <id>              # display a note
+notesd notes edit <id>              # edit in $EDITOR
+notesd notes delete <id>            # delete a note
+notesd search <query>               # search notes
+```
+
+### Managing Todos
+
+```
+notesd todos list                   # list all todos
+notesd todos list --overdue         # show overdue only
+notesd todos create "Buy groceries" # create a todo
+notesd todos create "Task" -d 2026-03-15  # with due date
+notesd todos complete <id>          # mark as done
+notesd todos delete <id>            # delete a todo
+```
+
+### Logging Out
+
+```
+notesd logout
+```
+
+This revokes your tokens on the server and removes the local session.

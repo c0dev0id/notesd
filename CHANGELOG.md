@@ -23,3 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Auto-generated RSA key pair on first run
 - Graceful server shutdown on SIGINT/SIGTERM
 - Database and API test suites (30 tests)
+- CLI client with Cobra command framework
+- CLI commands: login, register, logout, notes (list/show/create/edit/delete),
+  todos (list/create/show/complete/delete), search
+- CLI note editing via `$EDITOR`
+- CLI token auto-refresh on expiry
+- CLI config and session storage in `~/.notesd/`

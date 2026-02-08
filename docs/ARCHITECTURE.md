@@ -71,3 +71,27 @@ Single Go binary serving a REST API over HTTP.
 - Foreign keys enforced
 - Timestamps stored as INTEGER (Unix milliseconds)
 - Indexes on `user_id`, `modified_at`, `deleted_at`, `due_date`
+
+## CLI Client (`cli/`)
+
+Thin command-line wrapper around the server REST API. Uses Cobra for command
+structure. No local database — all operations are direct API calls.
+
+### Package Structure
+
+- `main.go` — Entry point
+- `internal/client/` — HTTP client with token management and auto-refresh
+- `internal/cmd/` — Cobra command definitions (login, notes, todos, search)
+
+### Authentication Flow
+
+1. User runs `notesd login`, provides server URL, email, password
+2. Client calls `POST /api/v1/auth/login`, stores tokens in `~/.notesd/session.json`
+3. Subsequent commands attach the access token as `Authorization: Bearer` header
+4. On 401 response, the client automatically refreshes using the stored refresh token
+5. `notesd logout` revokes server-side tokens and deletes the local session
+
+### Configuration
+
+- `~/.notesd/config.toml` — Server URL, device ID
+- `~/.notesd/session.json` — Access and refresh tokens (file mode 0600)
