@@ -1,0 +1,94 @@
+name: Build Android
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Restore build cache
+        id: cache-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            ~/.android/build-cache
+            /usr/local/lib/android/sdk/ndk
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin/cargo-ndk
+            rust-core/target
+          key: android-rust-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', 'rust-core/Cargo.toml', 'rust-core/Cargo.lock') }}
+          restore-keys: |
+            android-rust-${{ runner.os }}-
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK
+        run: |
+          if [ ! -d "/usr/local/lib/android/sdk/ndk/26.1.10909125" ]; then
+            yes | sdkmanager --licenses > /dev/null 2>&1 || true
+            sdkmanager --install "ndk;26.1.10909125"
+          else
+            echo "NDK 26.1.10909125 already present (from cache)"
+          fi
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+
+      - name: Install cargo-ndk
+        run: |
+          if ! command -v cargo-ndk &> /dev/null; then
+            cargo install cargo-ndk
+          else
+            echo "cargo-ndk already present (from cache)"
+          fi
+
+      - name: Build debug APK
+        run: ./gradlew assembleDebug
+        env:
+          ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/26.1.10909125
+
+      - name: List build outputs
+        run: find app/build/outputs -name "*.apk" 2>/dev/null || echo "No APK found"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ndkarte-debug
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      - name: Save build cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            ~/.android/build-cache
+            /usr/local/lib/android/sdk/ndk
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin/cargo-ndk
+            rust-core/target
+          key: android-rust-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', 'rust-core/Cargo.toml', 'rust-core/Cargo.lock') }}
