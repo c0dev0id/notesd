@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Tiptap editor styles */
+.tiptap {
+	@apply outline-none min-h-[200px] p-3;
+}
+
+.tiptap p {
+	@apply my-1;
+}
+
+.tiptap h1 {
+	@apply text-2xl font-bold my-2;
+}
+
+.tiptap h2 {
+	@apply text-xl font-bold my-2;
+}
+
+.tiptap h3 {
+	@apply text-lg font-semibold my-1;
+}
+
+.tiptap ul {
+	@apply list-disc pl-6 my-1;
+}
+
+.tiptap ol {
+	@apply list-decimal pl-6 my-1;
+}
+
+.tiptap blockquote {
+	@apply border-l-4 border-gray-300 pl-4 italic my-2;
+}
+
+.tiptap code {
+	@apply bg-gray-100 rounded px-1 py-0.5 text-sm font-mono;
+}
+
+.tiptap pre {
+	@apply bg-gray-100 rounded p-3 my-2;
+}
+
+.tiptap pre code {
+	@apply bg-transparent p-0;
+}
+
+.tiptap hr {
+	@apply my-4 border-gray-300;
+}
+
+.tiptap .is-editor-empty:first-child::before {
+	@apply text-gray-400 float-left h-0 pointer-events-none;
+	content: attr(data-placeholder);
+}
