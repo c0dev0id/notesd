@@ -51,6 +51,33 @@ wins when sync happens. You won't lose data — the newer version is kept.
 
 Deleted items are synced across all devices so removals propagate everywhere.
 
+## Web Interface
+
+Open the web client in your browser. You can log in or register from the
+start page.
+
+### Notes
+
+The notes page has a split-pane layout: a list of notes on the left and the
+editor on the right. Click a note to open it. Changes are saved automatically
+after a short pause.
+
+The toolbar provides formatting options: bold, italic, strikethrough, headings
+(H1-H3), bullet and ordered lists, blockquotes, code blocks, and horizontal
+rules.
+
+### Todos
+
+The todos page shows all your todos with filters for active, completed, and
+overdue items. Create new todos with the form at the top. Click the checkbox
+to mark a todo complete. Overdue todos are highlighted.
+
+### Offline
+
+The web client stores all data locally in your browser using IndexedDB. You can
+work without an internet connection. A sync indicator in the navigation bar
+shows the current sync status. Sync runs automatically every 30 seconds.
+
 ## Command-Line Interface
 
 The CLI lets you manage notes and todos from the terminal.

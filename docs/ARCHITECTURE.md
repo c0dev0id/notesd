@@ -95,3 +95,33 @@ structure. No local database — all operations are direct API calls.
 
 - `~/.notesd/config.toml` — Server URL, device ID
 - `~/.notesd/session.json` — Access and refresh tokens (file mode 0600)
+
+## Web Client (`web/`)
+
+Single-page application built with SvelteKit 2 and Svelte 5. Runs entirely in
+the browser with offline-first capabilities.
+
+### Package Structure
+
+- `src/lib/api.js` — HTTP client for server REST API, auto-refresh on 401
+- `src/lib/stores/auth.js` — Svelte writable store with localStorage persistence
+- `src/lib/db.js` — Dexie.js IndexedDB wrapper for offline CRUD and sync
+- `src/lib/sync.js` — Background sync (30s interval), pull then push
+- `src/lib/device.js` — Device ID generation and persistence
+- `src/lib/components/Editor.svelte` — Tiptap rich text editor with toolbar
+- `src/lib/components/NoteList.svelte` — Sidebar note list with selection
+- `src/lib/components/TodoItem.svelte` — Todo item with checkbox and delete
+- `src/routes/` — SvelteKit page routes (login, register, notes, todos)
+
+### Offline Architecture
+
+1. All data is written to IndexedDB (via Dexie.js) first
+2. Background sync runs every 30 seconds when authenticated
+3. Sync pulls server changes since last sync timestamp, then pushes local changes
+4. Conflict resolution follows LWW — same as server side
+5. Auth tokens stored in localStorage for persistence across tabs
+
+### Build
+
+Built with Vite 5 and deployed as a static site via `@sveltejs/adapter-static`.
+In development mode, Vite proxies `/api` requests to `http://127.0.0.1:8080`.

@@ -3,6 +3,7 @@
 ## Prerequisites
 
 - Go 1.23+
+- Node.js 18+ and npm (for web client)
 
 ## Project Structure
 
@@ -49,6 +50,34 @@ server/
 ├── go.sum
 ├── Makefile
 └── notesd.conf.example
+
+web/
+├── src/
+│   ├── app.html                    # HTML template
+│   ├── app.css                     # Tailwind + Tiptap styles
+│   ├── lib/
+│   │   ├── api.js                  # REST API client with auto-refresh
+│   │   ├── db.js                   # Dexie.js IndexedDB offline storage
+│   │   ├── sync.js                 # Background sync logic
+│   │   ├── device.js               # Device ID helper
+│   │   ├── stores/
+│   │   │   └── auth.js             # Auth store (localStorage persistence)
+│   │   └── components/
+│   │       ├── Editor.svelte       # Tiptap rich text editor
+│   │       ├── NoteList.svelte     # Note list sidebar
+│   │       └── TodoItem.svelte     # Todo item component
+│   └── routes/
+│       ├── +layout.svelte          # App shell with nav, sync indicator
+│       ├── +page.svelte            # Root redirect
+│       ├── login/+page.svelte      # Login page
+│       ├── register/+page.svelte   # Registration page
+│       ├── notes/+page.svelte      # Notes split-pane view
+│       └── todos/+page.svelte      # Todo list with filters
+├── package.json
+├── svelte.config.js
+├── vite.config.js
+├── tailwind.config.js
+└── postcss.config.js
 ```
 
 ## Building
@@ -65,6 +94,14 @@ make build    # produces ./notesd binary
 ```sh
 cd cli
 make build    # produces ./notesd binary
+```
+
+### Web Client
+
+```sh
+cd web
+npm install
+npm run build    # produces static site in build/
 ```
 
 ## Configuration
@@ -96,6 +133,16 @@ cp notesd.conf.example notesd.conf   # adjust as needed
 ```
 
 The server listens on `127.0.0.1:8080` by default. Logs go to stderr.
+
+### Web Client (development)
+
+```sh
+cd web
+npm run dev
+```
+
+This starts a Vite dev server (default port 5173) that proxies `/api` requests
+to the notesd server at `http://127.0.0.1:8080`.
 
 ## Testing
 
@@ -129,6 +176,20 @@ services or test data fixtures are required.
 |---|---|
 | `github.com/spf13/cobra` | CLI command framework |
 | `golang.org/x/term` | Terminal password input without echo |
+
+### Web (`web/`)
+
+| Package | Purpose |
+|---|---|
+| `@sveltejs/kit` | SvelteKit framework |
+| `svelte` | Svelte 5 UI compiler |
+| `@tiptap/core` | Rich text editor framework |
+| `@tiptap/starter-kit` | Tiptap essentials (bold, italic, headings, lists, etc.) |
+| `@tiptap/extension-placeholder` | Editor placeholder text |
+| `@tiptap/pm` | ProseMirror peer dependency |
+| `dexie` | IndexedDB wrapper for offline storage |
+| `tailwindcss` | Utility-first CSS framework |
+| `vite` | Build tool and dev server |
 
 ## API Endpoints
 

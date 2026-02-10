@@ -7,7 +7,7 @@
 	let { content = '', onupdate = () => {}, editable = true } = $props();
 
 	let element;
-	let editor;
+	let editor = $state(null);
 
 	onMount(() => {
 		editor = new Editor({
