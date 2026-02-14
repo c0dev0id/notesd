@@ -663,3 +663,336 @@ func TestRefreshTokenCRUD(t *testing.T) {
 		t.Errorf("expected ErrNotFound, got %v", err)
 	}
 }
+
+func TestDeleteRefreshTokensByUser(t *testing.T) {
+	db := testDB(t)
+	u := testUser(t, db)
+	now := model.NowMillis()
+
+	// Arrange — create multiple tokens for the same user
+	for i := 0; i < 3; i++ {
+		token := model.NewID()
+		rt := &model.RefreshToken{
+			ID: model.NewID(), UserID: u.ID, DeviceID: "dev",
+			TokenHash: HashToken(token), ExpiresAt: now.Add(30 * 24 * time.Hour), CreatedAt: now,
+		}
+		if err := db.CreateRefreshToken(rt); err != nil {
+			t.Fatalf("create token %d: %v", i, err)
+		}
+	}
+
+	// Act
+	err := db.DeleteRefreshTokensByUser(u.ID)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("DeleteRefreshTokensByUser: %v", err)
+	}
+	t.Logf("deleted all tokens for user %s", u.ID)
+}
+
+func TestDeleteExpiredRefreshTokens(t *testing.T) {
+	db := testDB(t)
+	u := testUser(t, db)
+	now := model.NowMillis()
+
+	// Arrange — one expired, one valid
+	expired := &model.RefreshToken{
+		ID: model.NewID(), UserID: u.ID, DeviceID: "dev",
+		TokenHash: HashToken("expired"), ExpiresAt: now.Add(-1 * time.Hour), CreatedAt: now,
+	}
+	valid := &model.RefreshToken{
+		ID: model.NewID(), UserID: u.ID, DeviceID: "dev",
+		TokenHash: HashToken("valid"), ExpiresAt: now.Add(30 * 24 * time.Hour), CreatedAt: now,
+	}
+	if err := db.CreateRefreshToken(expired); err != nil {
+		t.Fatalf("create expired: %v", err)
+	}
+	if err := db.CreateRefreshToken(valid); err != nil {
+		t.Fatalf("create valid: %v", err)
+	}
+
+	// Act
+	n, err := db.DeleteExpiredRefreshTokens()
+
+	// Assert
+	if err != nil {
+		t.Fatalf("DeleteExpiredRefreshTokens: %v", err)
+	}
+	t.Logf("deleted %d expired tokens", n)
+	if n != 1 {
+		t.Errorf("expected 1 deleted, got %d", n)
+	}
+
+	// Valid token should still exist
+	_, err = db.GetRefreshTokenByHash(HashToken("valid"))
+	if err != nil {
+		t.Errorf("valid token should still exist: %v", err)
+	}
+}
+
+// --- Todo sync tests ---
+
+func TestTodoChangesSince(t *testing.T) {
+	db := testDB(t)
+	u := testUser(t, db)
+	now := model.NowMillis()
+
+	// Arrange
+	t1 := now.Add(-2 * time.Hour)
+	t2 := now.Add(-1 * time.Hour)
+	t3 := now
+
+	for i, ts := range []time.Time{t1, t2, t3} {
+		todo := &model.Todo{
+			ID: model.NewID(), UserID: u.ID,
+			Content: "Todo", ModifiedAt: ts,
+			ModifiedByDevice: "dev1", CreatedAt: ts,
+		}
+		if err := db.CreateTodo(todo); err != nil {
+			t.Fatalf("create todo %d: %v", i, err)
+		}
+	}
+
+	// Act
+	changes, err := db.GetTodoChangesSince(u.ID, t1.UnixMilli())
+
+	// Assert
+	if err != nil {
+		t.Fatalf("GetTodoChangesSince: %v", err)
+	}
+	t.Logf("changes since %d: %d todos", t1.UnixMilli(), len(changes))
+	if len(changes) != 2 {
+		t.Errorf("expected 2 changes, got %d", len(changes))
+	}
+}
+
+func TestUpsertTodoLWW(t *testing.T) {
+	db := testDB(t)
+	u := testUser(t, db)
+	now := model.NowMillis()
+
+	// Arrange — create a todo
+	todo := &model.Todo{
+		ID: model.NewID(), UserID: u.ID,
+		Content: "Server Version", ModifiedAt: now,
+		ModifiedByDevice: "server", CreatedAt: now,
+	}
+	if err := db.CreateTodo(todo); err != nil {
+		t.Fatalf("CreateTodo: %v", err)
+	}
+
+	// Act — client pushes older version (should lose)
+	older := &model.Todo{
+		ID: todo.ID, UserID: u.ID,
+		Content: "Client Version", ModifiedAt: now.Add(-1 * time.Hour),
+		ModifiedByDevice: "client", CreatedAt: now,
+	}
+	conflict, err := db.UpsertTodo(older)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("UpsertTodo (older): %v", err)
+	}
+	t.Logf("older push: conflict=%v", conflict != nil)
+	if conflict == nil {
+		t.Error("expected conflict for older timestamp, got nil")
+	}
+
+	// Act — client pushes newer version (should win)
+	newer := &model.Todo{
+		ID: todo.ID, UserID: u.ID,
+		Content: "Client Wins", ModifiedAt: now.Add(1 * time.Hour),
+		ModifiedByDevice: "client", CreatedAt: now,
+	}
+	conflict, err = db.UpsertTodo(newer)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("UpsertTodo (newer): %v", err)
+	}
+	t.Logf("newer push: conflict=%v", conflict != nil)
+	if conflict != nil {
+		t.Error("expected no conflict for newer timestamp")
+	}
+
+	got, _ := db.GetTodo(todo.ID, u.ID)
+	t.Logf("final state: content=%q", got.Content)
+	if got.Content != "Client Wins" {
+		t.Errorf("content: got %q, want %q", got.Content, "Client Wins")
+	}
+}
+
+func TestUpsertTodoInsertNew(t *testing.T) {
+	db := testDB(t)
+	u := testUser(t, db)
+	now := model.NowMillis()
+
+	// Act — upsert a todo that doesn't exist yet
+	todo := &model.Todo{
+		ID: model.NewID(), UserID: u.ID,
+		Content: "New via upsert", ModifiedAt: now,
+		ModifiedByDevice: "phone", CreatedAt: now,
+	}
+	conflict, err := db.UpsertTodo(todo)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("UpsertTodo (new): %v", err)
+	}
+	if conflict != nil {
+		t.Error("expected no conflict for new insert")
+	}
+
+	got, err := db.GetTodo(todo.ID, u.ID)
+	if err != nil {
+		t.Fatalf("GetTodo after upsert: %v", err)
+	}
+	t.Logf("upserted todo: content=%q", got.Content)
+	if got.Content != "New via upsert" {
+		t.Errorf("content: got %q, want %q", got.Content, "New via upsert")
+	}
+}
+
+func TestListTodosPagination(t *testing.T) {
+	db := testDB(t)
+	u := testUser(t, db)
+	now := model.NowMillis()
+
+	// Arrange
+	for i := 0; i < 5; i++ {
+		todo := &model.Todo{
+			ID: model.NewID(), UserID: u.ID,
+			Content: "Todo", ModifiedAt: now.Add(time.Duration(i) * time.Millisecond),
+			ModifiedByDevice: "dev1", CreatedAt: now,
+		}
+		if err := db.CreateTodo(todo); err != nil {
+			t.Fatalf("create todo %d: %v", i, err)
+		}
+	}
+
+	// Act
+	todos, total, err := db.ListTodos(u.ID, 2, 0)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("ListTodos: %v", err)
+	}
+	t.Logf("page 1: %d todos, total=%d", len(todos), total)
+	if total != 5 {
+		t.Errorf("total: got %d, want 5", total)
+	}
+	if len(todos) != 2 {
+		t.Errorf("page size: got %d, want 2", len(todos))
+	}
+
+	// Second page
+	todos2, _, err := db.ListTodos(u.ID, 2, 2)
+	if err != nil {
+		t.Fatalf("ListTodos page 2: %v", err)
+	}
+	t.Logf("page 2: %d todos", len(todos2))
+	if len(todos2) != 2 {
+		t.Errorf("page 2 size: got %d, want 2", len(todos2))
+	}
+}
+
+func TestDeleteTodoSoftDelete(t *testing.T) {
+	db := testDB(t)
+	u := testUser(t, db)
+	now := model.NowMillis()
+
+	// Arrange
+	todo := &model.Todo{
+		ID: model.NewID(), UserID: u.ID,
+		Content: "Soft delete me", ModifiedAt: now,
+		ModifiedByDevice: "dev1", CreatedAt: now,
+	}
+	if err := db.CreateTodo(todo); err != nil {
+		t.Fatalf("CreateTodo: %v", err)
+	}
+
+	// Act
+	err := db.DeleteTodo(todo.ID, u.ID, model.NowMillis().UnixMilli(), "dev1")
+	if err != nil {
+		t.Fatalf("DeleteTodo: %v", err)
+	}
+
+	// Assert — GetTodo should not find it
+	_, err = db.GetTodo(todo.ID, u.ID)
+	if err != ErrNotFound {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+
+	// GetTodoAny should still find it
+	got, err := db.GetTodoAny(todo.ID, u.ID)
+	if err != nil {
+		t.Fatalf("GetTodoAny after delete: %v", err)
+	}
+	t.Logf("soft-deleted todo: deleted_at=%v", got.DeletedAt)
+	if got.DeletedAt == nil {
+		t.Error("expected deleted_at to be set")
+	}
+}
+
+func TestGetUserByEmailNotFound(t *testing.T) {
+	db := testDB(t)
+
+	// Act
+	_, err := db.GetUserByEmail("nonexistent@example.com")
+
+	// Assert
+	t.Logf("not found error: %v", err)
+	if err != ErrNotFound {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestSearchNotesNoResults(t *testing.T) {
+	db := testDB(t)
+	u := testUser(t, db)
+
+	// Act — search with no notes in DB
+	results, total, err := db.SearchNotes(u.ID, "nonexistent", 10, 0)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("SearchNotes: %v", err)
+	}
+	t.Logf("search empty: %d results, total=%d", len(results), total)
+	if total != 0 {
+		t.Errorf("total: got %d, want 0", total)
+	}
+}
+
+func TestGetNoteAnyNotFound(t *testing.T) {
+	db := testDB(t)
+	u := testUser(t, db)
+
+	// Act
+	_, err := db.GetNoteAny("nonexistent", u.ID)
+
+	// Assert
+	if err != ErrNotFound {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestHashToken(t *testing.T) {
+	// Act
+	hash1 := HashToken("token-a")
+	hash2 := HashToken("token-a")
+	hash3 := HashToken("token-b")
+
+	// Assert
+	t.Logf("hash1=%s hash3=%s", hash1[:16], hash3[:16])
+	if hash1 != hash2 {
+		t.Error("same input should produce same hash")
+	}
+	if hash1 == hash3 {
+		t.Error("different input should produce different hash")
+	}
+	if len(hash1) != 64 {
+		t.Errorf("expected 64 char hex string, got %d", len(hash1))
+	}
+}

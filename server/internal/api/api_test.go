@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -105,7 +106,7 @@ func (e *testEnv) registerAndLogin(t *testing.T) (string, *model.User) {
 
 	// Register
 	resp := e.doJSON(t, "POST", "/api/v1/auth/register", model.RegisterRequest{
-		Email: email, Password: "testpass123", DisplayName: "Test User",
+		Email: email, Password: "testpass1234", DisplayName: "Test User",
 	}, "")
 	if resp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(resp.Body)
@@ -116,7 +117,7 @@ func (e *testEnv) registerAndLogin(t *testing.T) (string, *model.User) {
 
 	// Login
 	resp = e.doJSON(t, "POST", "/api/v1/auth/login", model.LoginRequest{
-		Email: email, Password: "testpass123", DeviceID: "test-device",
+		Email: email, Password: "testpass1234", DeviceID: "test-device",
 	}, "")
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -137,7 +138,7 @@ func TestRegister(t *testing.T) {
 
 	// Act
 	resp := e.doJSON(t, "POST", "/api/v1/auth/register", model.RegisterRequest{
-		Email: "new@example.com", Password: "pass123", DisplayName: "New User",
+		Email: "new@example.com", Password: "pass1234", DisplayName: "New User",
 	}, "")
 
 	// Assert
@@ -159,7 +160,7 @@ func TestRegister(t *testing.T) {
 func TestRegisterDuplicate(t *testing.T) {
 	e := setup(t)
 
-	req := model.RegisterRequest{Email: "dup@example.com", Password: "pass", DisplayName: "A"}
+	req := model.RegisterRequest{Email: "dup@example.com", Password: "password", DisplayName: "A"}
 	resp := e.doJSON(t, "POST", "/api/v1/auth/register", req, "")
 	resp.Body.Close()
 
@@ -179,12 +180,12 @@ func TestLoginSuccess(t *testing.T) {
 
 	// Arrange
 	e.doJSON(t, "POST", "/api/v1/auth/register", model.RegisterRequest{
-		Email: "login@example.com", Password: "secret", DisplayName: "Login User",
+		Email: "login@example.com", Password: "secret12", DisplayName: "Login User",
 	}, "").Body.Close()
 
 	// Act
 	resp := e.doJSON(t, "POST", "/api/v1/auth/login", model.LoginRequest{
-		Email: "login@example.com", Password: "secret", DeviceID: "dev1",
+		Email: "login@example.com", Password: "secret12", DeviceID: "dev1",
 	}, "")
 
 	// Assert
@@ -211,12 +212,12 @@ func TestLoginWrongPassword(t *testing.T) {
 	e := setup(t)
 
 	e.doJSON(t, "POST", "/api/v1/auth/register", model.RegisterRequest{
-		Email: "wrong@example.com", Password: "correct", DisplayName: "User",
+		Email: "wrong@example.com", Password: "correct1", DisplayName: "User",
 	}, "").Body.Close()
 
 	// Act
 	resp := e.doJSON(t, "POST", "/api/v1/auth/login", model.LoginRequest{
-		Email: "wrong@example.com", Password: "incorrect", DeviceID: "dev1",
+		Email: "wrong@example.com", Password: "incorrec1", DeviceID: "dev1",
 	}, "")
 
 	// Assert
@@ -232,11 +233,11 @@ func TestRefreshToken(t *testing.T) {
 
 	// Arrange — register and login to get tokens
 	e.doJSON(t, "POST", "/api/v1/auth/register", model.RegisterRequest{
-		Email: "refresh@example.com", Password: "pass", DisplayName: "User",
+		Email: "refresh@example.com", Password: "password", DisplayName: "User",
 	}, "").Body.Close()
 
 	loginResp := e.doJSON(t, "POST", "/api/v1/auth/login", model.LoginRequest{
-		Email: "refresh@example.com", Password: "pass", DeviceID: "dev1",
+		Email: "refresh@example.com", Password: "password", DeviceID: "dev1",
 	}, "")
 	var loginAuth model.AuthResponse
 	decodeBody(t, loginResp, &loginAuth)
@@ -650,5 +651,440 @@ func TestUserIsolation(t *testing.T) {
 	t.Logf("user2 notes: total=%d", listResp.Total)
 	if listResp.Total != 0 {
 		t.Errorf("expected 0 notes for user2, got %d", listResp.Total)
+	}
+}
+
+// --- Validation tests ---
+
+func TestRegisterMissingFields(t *testing.T) {
+	e := setup(t)
+
+	tests := []struct {
+		name string
+		body model.RegisterRequest
+	}{
+		{"no email", model.RegisterRequest{Password: "longpass1", DisplayName: "A"}},
+		{"no password", model.RegisterRequest{Email: "a@example.com", DisplayName: "A"}},
+		{"no display_name", model.RegisterRequest{Email: "a@example.com", Password: "longpass1"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := e.doJSON(t, "POST", "/api/v1/auth/register", tc.body, "")
+			t.Logf("%s: status=%d", tc.name, resp.StatusCode)
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Errorf("expected 400, got %d", resp.StatusCode)
+			}
+			resp.Body.Close()
+		})
+	}
+}
+
+func TestRegisterInvalidEmail(t *testing.T) {
+	e := setup(t)
+
+	tests := []string{"notanemail", "missing@", "@nodomain", "no@dot"}
+	for _, email := range tests {
+		t.Run(email, func(t *testing.T) {
+			resp := e.doJSON(t, "POST", "/api/v1/auth/register", model.RegisterRequest{
+				Email: email, Password: "longpass1", DisplayName: "User",
+			}, "")
+			t.Logf("email=%q status=%d", email, resp.StatusCode)
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Errorf("expected 400 for email %q, got %d", email, resp.StatusCode)
+			}
+			resp.Body.Close()
+		})
+	}
+}
+
+func TestRegisterShortPassword(t *testing.T) {
+	e := setup(t)
+
+	resp := e.doJSON(t, "POST", "/api/v1/auth/register", model.RegisterRequest{
+		Email: "short@example.com", Password: "short", DisplayName: "User",
+	}, "")
+	t.Logf("short password status: %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestLoginMissingFields(t *testing.T) {
+	e := setup(t)
+
+	tests := []struct {
+		name string
+		body model.LoginRequest
+	}{
+		{"no email", model.LoginRequest{Password: "password", DeviceID: "d"}},
+		{"no password", model.LoginRequest{Email: "a@b.com", DeviceID: "d"}},
+		{"no device_id", model.LoginRequest{Email: "a@b.com", Password: "password"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := e.doJSON(t, "POST", "/api/v1/auth/login", tc.body, "")
+			t.Logf("%s: status=%d", tc.name, resp.StatusCode)
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Errorf("expected 400, got %d", resp.StatusCode)
+			}
+			resp.Body.Close()
+		})
+	}
+}
+
+func TestLoginNonExistentUser(t *testing.T) {
+	e := setup(t)
+
+	resp := e.doJSON(t, "POST", "/api/v1/auth/login", model.LoginRequest{
+		Email: "ghost@example.com", Password: "password123", DeviceID: "dev1",
+	}, "")
+	t.Logf("non-existent user login status: %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestLogout(t *testing.T) {
+	e := setup(t)
+	token, _ := e.registerAndLogin(t)
+
+	// Act — logout
+	resp := e.doJSON(t, "POST", "/api/v1/auth/logout", nil, token)
+	t.Logf("logout status: %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Errorf("expected 204, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestRefreshTokenMissing(t *testing.T) {
+	e := setup(t)
+
+	resp := e.doJSON(t, "POST", "/api/v1/auth/refresh", model.RefreshRequest{}, "")
+	t.Logf("empty refresh token status: %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestRefreshTokenInvalid(t *testing.T) {
+	e := setup(t)
+
+	resp := e.doJSON(t, "POST", "/api/v1/auth/refresh", model.RefreshRequest{
+		RefreshToken: "totally.invalid.token",
+	}, "")
+	t.Logf("invalid refresh token status: %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+// --- Notes validation ---
+
+func TestCreateNoteMissingDeviceID(t *testing.T) {
+	e := setup(t)
+	token, _ := e.registerAndLogin(t)
+
+	resp := e.doJSON(t, "POST", "/api/v1/notes", model.CreateNoteRequest{
+		Title: "No Device", Content: "test", Type: "note",
+	}, token)
+	t.Logf("missing device_id status: %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestCreateNoteInvalidType(t *testing.T) {
+	e := setup(t)
+	token, _ := e.registerAndLogin(t)
+
+	resp := e.doJSON(t, "POST", "/api/v1/notes", model.CreateNoteRequest{
+		Title: "Bad Type", Type: "invalid_type", DeviceID: "dev1",
+	}, token)
+	t.Logf("invalid type status: %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestGetNoteNotFound(t *testing.T) {
+	e := setup(t)
+	token, _ := e.registerAndLogin(t)
+
+	resp := e.doJSON(t, "GET", "/api/v1/notes/nonexistent-id", nil, token)
+	t.Logf("get non-existent note: %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestUpdateNoteNotFound(t *testing.T) {
+	e := setup(t)
+	token, _ := e.registerAndLogin(t)
+
+	title := "Updated"
+	resp := e.doJSON(t, "PUT", "/api/v1/notes/nonexistent-id", model.UpdateNoteRequest{
+		Title: &title, DeviceID: "dev1",
+	}, token)
+	t.Logf("update non-existent note: %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestDeleteNoteNotFound(t *testing.T) {
+	e := setup(t)
+	token, _ := e.registerAndLogin(t)
+
+	resp := e.doJSON(t, "DELETE", "/api/v1/notes/nonexistent-id", nil, token)
+	t.Logf("delete non-existent note: %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestSearchNotesEmptyQuery(t *testing.T) {
+	e := setup(t)
+	token, _ := e.registerAndLogin(t)
+
+	resp := e.doJSON(t, "GET", "/api/v1/notes/search", nil, token)
+	t.Logf("empty search query status: %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestNoteTitleTooLong(t *testing.T) {
+	e := setup(t)
+	token, _ := e.registerAndLogin(t)
+
+	longTitle := strings.Repeat("a", 501)
+	resp := e.doJSON(t, "POST", "/api/v1/notes", model.CreateNoteRequest{
+		Title: longTitle, Type: "note", DeviceID: "dev1",
+	}, token)
+	t.Logf("long title status: %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+// --- Todos validation ---
+
+func TestCreateTodoMissingDeviceID(t *testing.T) {
+	e := setup(t)
+	token, _ := e.registerAndLogin(t)
+
+	resp := e.doJSON(t, "POST", "/api/v1/todos", model.CreateTodoRequest{
+		Content: "No Device",
+	}, token)
+	t.Logf("missing device_id status: %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestGetTodoNotFound(t *testing.T) {
+	e := setup(t)
+	token, _ := e.registerAndLogin(t)
+
+	resp := e.doJSON(t, "GET", "/api/v1/todos/nonexistent-id", nil, token)
+	t.Logf("get non-existent todo: %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestDeleteTodoNotFound(t *testing.T) {
+	e := setup(t)
+	token, _ := e.registerAndLogin(t)
+
+	resp := e.doJSON(t, "DELETE", "/api/v1/todos/nonexistent-id", nil, token)
+	t.Logf("delete non-existent todo: %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestTodoUserIsolation(t *testing.T) {
+	e := setup(t)
+	token1, _ := e.registerAndLogin(t)
+	token2, _ := e.registerAndLogin(t)
+
+	// User 1 creates a todo
+	resp := e.doJSON(t, "POST", "/api/v1/todos", model.CreateTodoRequest{
+		Content: "Private Todo", DeviceID: "dev1",
+	}, token1)
+	var todo model.Todo
+	decodeBody(t, resp, &todo)
+	t.Logf("user1 created todo: id=%s", todo.ID)
+
+	// User 2 cannot see it
+	resp = e.doJSON(t, "GET", "/api/v1/todos/"+todo.ID, nil, token2)
+	t.Logf("user2 get user1 todo: status=%d", resp.StatusCode)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404, got %d — todo isolation violated", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+// --- Sync validation ---
+
+func TestSyncChangesMissingSince(t *testing.T) {
+	e := setup(t)
+	token, _ := e.registerAndLogin(t)
+
+	resp := e.doJSON(t, "GET", "/api/v1/sync/changes", nil, token)
+	t.Logf("missing since status: %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestSyncChangesInvalidSince(t *testing.T) {
+	e := setup(t)
+	token, _ := e.registerAndLogin(t)
+
+	resp := e.doJSON(t, "GET", "/api/v1/sync/changes?since=notanumber", nil, token)
+	t.Logf("invalid since status: %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestSyncPushEmptyBody(t *testing.T) {
+	e := setup(t)
+	token, _ := e.registerAndLogin(t)
+
+	resp := e.doJSON(t, "POST", "/api/v1/sync/push", model.SyncPushRequest{}, token)
+	t.Logf("empty push status: %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 for empty push, got %d", resp.StatusCode)
+	}
+
+	var pushResp model.SyncPushResponse
+	decodeBody(t, resp, &pushResp)
+	t.Logf("empty push: accepted=%d conflicts=%d", pushResp.Accepted, len(pushResp.Conflicts))
+	if pushResp.Accepted != 0 {
+		t.Errorf("expected 0 accepted, got %d", pushResp.Accepted)
+	}
+}
+
+// --- CORS test ---
+
+func TestCORSPreflight(t *testing.T) {
+	e := setup(t)
+
+	req, _ := http.NewRequest("OPTIONS", e.server.URL+"/api/v1/notes", nil)
+	req.Header.Set("Origin", "http://localhost:5173")
+	req.Header.Set("Access-Control-Request-Method", "POST")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("preflight request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	t.Logf("CORS preflight status: %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Errorf("expected 204, got %d", resp.StatusCode)
+	}
+
+	allow := resp.Header.Get("Access-Control-Allow-Origin")
+	t.Logf("Access-Control-Allow-Origin: %s", allow)
+	if allow != "*" {
+		t.Errorf("expected *, got %q", allow)
+	}
+}
+
+// --- Health check test ---
+
+func TestHealthCheck(t *testing.T) {
+	e := setup(t)
+
+	resp, err := http.Get(e.server.URL + "/api/v1/health")
+	if err != nil {
+		t.Fatalf("health check: %v", err)
+	}
+	defer resp.Body.Close()
+
+	t.Logf("health check status: %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var health map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&health); err != nil {
+		t.Fatalf("decode health: %v", err)
+	}
+	t.Logf("health: %v", health)
+	if health["status"] != "ok" {
+		t.Errorf("expected status=ok, got %v", health["status"])
+	}
+}
+
+// --- Pagination test ---
+
+func TestNotesListPagination(t *testing.T) {
+	e := setup(t)
+	token, _ := e.registerAndLogin(t)
+
+	// Create 5 notes
+	for i := 0; i < 5; i++ {
+		e.doJSON(t, "POST", "/api/v1/notes", model.CreateNoteRequest{
+			Title: fmt.Sprintf("Note %d", i), Type: "note", DeviceID: "dev1",
+		}, token).Body.Close()
+	}
+
+	// Request page with limit=2
+	resp := e.doJSON(t, "GET", "/api/v1/notes?limit=2&offset=0", nil, token)
+	var page1 model.NoteListResponse
+	decodeBody(t, resp, &page1)
+	t.Logf("page 1: %d notes, total=%d, limit=%d, offset=%d",
+		len(page1.Notes), page1.Total, page1.Limit, page1.Offset)
+	if page1.Total != 5 {
+		t.Errorf("total: got %d, want 5", page1.Total)
+	}
+	if len(page1.Notes) != 2 {
+		t.Errorf("page size: got %d, want 2", len(page1.Notes))
+	}
+
+	// Second page
+	resp = e.doJSON(t, "GET", "/api/v1/notes?limit=2&offset=2", nil, token)
+	var page2 model.NoteListResponse
+	decodeBody(t, resp, &page2)
+	t.Logf("page 2: %d notes", len(page2.Notes))
+	if len(page2.Notes) != 2 {
+		t.Errorf("page 2 size: got %d, want 2", len(page2.Notes))
+	}
+}
+
+func TestNotesListLimitCap(t *testing.T) {
+	e := setup(t)
+	token, _ := e.registerAndLogin(t)
+
+	// Request with limit > 200
+	resp := e.doJSON(t, "GET", "/api/v1/notes?limit=999", nil, token)
+	var listResp model.NoteListResponse
+	decodeBody(t, resp, &listResp)
+	t.Logf("capped limit: %d", listResp.Limit)
+	if listResp.Limit != 200 {
+		t.Errorf("expected limit capped to 200, got %d", listResp.Limit)
 	}
 }

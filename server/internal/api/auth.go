@@ -5,10 +5,18 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/c0dev0id/notesd/server/internal/database"
 	"github.com/c0dev0id/notesd/server/internal/model"
 	"golang.org/x/crypto/bcrypt"
+)
+
+const (
+	minPasswordLen  = 8
+	maxPasswordLen  = 72 // bcrypt limit
+	maxEmailLen     = 254
+	maxDisplayName  = 200
 )
 
 const bcryptCost = 12
@@ -21,8 +29,30 @@ func (a *API) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
+	req.DisplayName = strings.TrimSpace(req.DisplayName)
 	if req.Email == "" || req.Password == "" || req.DisplayName == "" {
 		writeError(w, http.StatusBadRequest, "email, password, and display_name are required")
+		return
+	}
+
+	if !isValidEmail(req.Email) {
+		writeError(w, http.StatusBadRequest, "invalid email address")
+		return
+	}
+	if utf8.RuneCountInString(req.Email) > maxEmailLen {
+		writeError(w, http.StatusBadRequest, "email too long")
+		return
+	}
+	if utf8.RuneCountInString(req.Password) < minPasswordLen {
+		writeError(w, http.StatusBadRequest, "password must be at least 8 characters")
+		return
+	}
+	if len(req.Password) > maxPasswordLen {
+		writeError(w, http.StatusBadRequest, "password too long")
+		return
+	}
+	if utf8.RuneCountInString(req.DisplayName) > maxDisplayName {
+		writeError(w, http.StatusBadRequest, "display name too long")
 		return
 	}
 
@@ -159,6 +189,19 @@ func (a *API) handleLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// isValidEmail checks for a basic valid email format (has exactly one @, non-empty parts).
+func isValidEmail(email string) bool {
+	at := strings.IndexByte(email, '@')
+	if at < 1 {
+		return false
+	}
+	domain := email[at+1:]
+	if domain == "" || !strings.Contains(domain, ".") {
+		return false
+	}
+	return true
 }
 
 // issueTokenPair creates both access and refresh tokens and stores the refresh token.

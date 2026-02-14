@@ -4,9 +4,15 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"unicode/utf8"
 
 	"github.com/c0dev0id/notesd/server/internal/database"
 	"github.com/c0dev0id/notesd/server/internal/model"
+)
+
+const (
+	maxTitleLen   = 500
+	maxContentLen = 500000 // 500KB of text
 )
 
 func (a *API) handleListNotes(w http.ResponseWriter, r *http.Request) {
@@ -68,6 +74,15 @@ func (a *API) handleCreateNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if utf8.RuneCountInString(req.Title) > maxTitleLen {
+		writeError(w, http.StatusBadRequest, "title too long")
+		return
+	}
+	if utf8.RuneCountInString(req.Content) > maxContentLen {
+		writeError(w, http.StatusBadRequest, "content too long")
+		return
+	}
+
 	noteType := req.Type
 	if noteType == "" {
 		noteType = "note"
@@ -110,6 +125,15 @@ func (a *API) handleUpdateNote(w http.ResponseWriter, r *http.Request) {
 
 	if req.DeviceID == "" {
 		writeError(w, http.StatusBadRequest, "device_id is required")
+		return
+	}
+
+	if req.Title != nil && utf8.RuneCountInString(*req.Title) > maxTitleLen {
+		writeError(w, http.StatusBadRequest, "title too long")
+		return
+	}
+	if req.Content != nil && utf8.RuneCountInString(*req.Content) > maxContentLen {
+		writeError(w, http.StatusBadRequest, "content too long")
 		return
 	}
 

@@ -193,7 +193,13 @@ services or test data fixtures are required.
 
 ## API Endpoints
 
-### Authentication (public)
+### Health
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/health` | Server health check (status, uptime) |
+
+### Authentication (public, rate limited)
 
 | Method | Path | Description |
 |---|---|---|

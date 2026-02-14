@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - TOML configuration (`$HOME/.notesd.conf`, `$PWD/notesd.conf`)
 - Auto-generated RSA key pair on first run
 - Graceful server shutdown on SIGINT/SIGTERM
-- Database and API test suites (30 tests)
+- Database and API test suites (69 tests)
 - CLI client with Cobra command framework
 - CLI commands: login, register, logout, notes (list/show/create/edit/delete),
   todos (list/create/show/complete/delete), search
@@ -37,3 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Split-pane notes view with debounced auto-save
 - Todo management with filters (all, active, completed, overdue)
 - CORS middleware on server for web client support
+- Health check endpoint (`GET /api/v1/health`)
+- Rate limiting on auth endpoints (20 req/min per IP)
+- Input validation: email format, password length (8-72), field length limits
+- Request body size limit (1MB)

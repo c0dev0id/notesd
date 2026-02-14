@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -25,6 +26,8 @@ type API struct {
 	privateKey         *rsa.PrivateKey
 	accessTokenExpiry  time.Duration
 	refreshTokenExpiry time.Duration
+	authLimiter        *rateLimiter
+	startTime          time.Time
 }
 
 func New(db *database.DB, cfg *config.Config) (*API, error) {
@@ -42,22 +45,36 @@ func New(db *database.DB, cfg *config.Config) (*API, error) {
 		return nil, fmt.Errorf("parse refresh_token_expiry: %w", err)
 	}
 
+	// 20 requests per minute per IP for auth endpoints
+	limiter := newRateLimiter(20, time.Minute)
+	go func() {
+		for {
+			time.Sleep(5 * time.Minute)
+			limiter.cleanup()
+		}
+	}()
+
 	return &API{
 		db:                 db,
 		config:             cfg,
 		privateKey:         key,
 		accessTokenExpiry:  accessExp,
 		refreshTokenExpiry: refreshExp,
+		authLimiter:        limiter,
+		startTime:          time.Now(),
 	}, nil
 }
 
 func (a *API) Routes() http.Handler {
 	mux := http.NewServeMux()
 
-	// Public auth routes
-	mux.HandleFunc("POST /api/v1/auth/register", a.handleRegister)
-	mux.HandleFunc("POST /api/v1/auth/login", a.handleLogin)
-	mux.HandleFunc("POST /api/v1/auth/refresh", a.handleRefresh)
+	// Health check
+	mux.HandleFunc("GET /api/v1/health", a.handleHealth)
+
+	// Public auth routes (rate limited)
+	mux.HandleFunc("POST /api/v1/auth/register", a.authLimiter.rateLimit(a.handleRegister))
+	mux.HandleFunc("POST /api/v1/auth/login", a.authLimiter.rateLimit(a.handleLogin))
+	mux.HandleFunc("POST /api/v1/auth/refresh", a.authLimiter.rateLimit(a.handleRefresh))
 
 	// Protected auth routes
 	mux.HandleFunc("POST /api/v1/auth/logout", a.auth(a.handleLogout))
@@ -114,11 +131,22 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, model.ErrorResponse{Error: msg})
 }
 
+// maxBodySize limits request bodies to 1MB.
+const maxBodySize = 1 << 20
+
 func decodeJSON(r *http.Request, v any) error {
 	defer r.Body.Close()
-	dec := json.NewDecoder(r.Body)
+	limited := io.LimitReader(r.Body, maxBodySize)
+	dec := json.NewDecoder(limited)
 	dec.DisallowUnknownFields()
 	return dec.Decode(v)
+}
+
+func (a *API) handleHealth(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status": "ok",
+		"uptime": time.Since(a.startTime).String(),
+	})
 }
 
 func queryInt(r *http.Request, key string, def int) int {

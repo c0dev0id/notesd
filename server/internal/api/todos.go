@@ -4,10 +4,13 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"unicode/utf8"
 
 	"github.com/c0dev0id/notesd/server/internal/database"
 	"github.com/c0dev0id/notesd/server/internal/model"
 )
+
+const maxTodoContentLen = 10000
 
 func (a *API) handleListTodos(w http.ResponseWriter, r *http.Request) {
 	userID := userIDFrom(r.Context())
@@ -68,6 +71,11 @@ func (a *API) handleCreateTodo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if utf8.RuneCountInString(req.Content) > maxTodoContentLen {
+		writeError(w, http.StatusBadRequest, "content too long")
+		return
+	}
+
 	now := model.NowMillis()
 	todo := &model.Todo{
 		ID:               model.NewID(),
@@ -103,6 +111,11 @@ func (a *API) handleUpdateTodo(w http.ResponseWriter, r *http.Request) {
 
 	if req.DeviceID == "" {
 		writeError(w, http.StatusBadRequest, "device_id is required")
+		return
+	}
+
+	if req.Content != nil && utf8.RuneCountInString(*req.Content) > maxTodoContentLen {
+		writeError(w, http.StatusBadRequest, "content too long")
 		return
 	}
 
