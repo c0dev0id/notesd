@@ -39,8 +39,11 @@ func New() (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("get home dir: %w", err)
 	}
+	return NewWithDir(filepath.Join(home, ".notesd"))
+}
 
-	configDir := filepath.Join(home, ".notesd")
+// NewWithDir creates a client using the given config directory. Useful for testing.
+func NewWithDir(configDir string) (*Client, error) {
 	if err := os.MkdirAll(configDir, 0700); err != nil {
 		return nil, fmt.Errorf("create config dir: %w", err)
 	}
