@@ -1,6 +1,6 @@
 .PHONY: notesd notes notes-web clean test
 
-BIN := $(CURDIR)/bin
+BIN != echo `pwd`/bin
 
 notesd:
 	mkdir -p $(BIN)
@@ -16,7 +16,7 @@ notes-web:
 clean:
 	$(MAKE) -C server BINDIR=$(BIN) clean
 	$(MAKE) -C notes-cli BINDIR=$(BIN) clean
-	rmdir --ignore-fail-on-non-empty $(BIN)
+	rmdir $(BIN) 2>/dev/null || true
 
 test:
 	$(MAKE) -C server test
