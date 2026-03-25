@@ -1,0 +1,10 @@
+[server]
+listen = "127.0.0.1:8080"
+
+[database]
+path = "notesd.db"
+
+[auth]
+private_key = "notesd.key"
+access_token_expiry = "15m"
+refresh_token_expiry = "720h"  # 30 days
