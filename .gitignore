@@ -1,6 +1,6 @@
 *.db
 *.key
-notesd
-notes-cli
-notes-tui
+server/notesd
+notes-cli/notes-cli
+notes-cli/notes-tui
 .claude/
