@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: |
+            server/go.sum
+            notes-cli/go.sum
+
+      - name: Build server
+        working-directory: server
+        run: go build ./...
+
+      - name: Build notes-cli and notes-tui
+        working-directory: notes-cli
+        run: go build ./...
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: |
+            server/go.sum
+            notes-cli/go.sum
+
+      - name: Server tests
+        working-directory: server
+        run: go test -v -race ./...
+
+      - name: notes-cli tests
+        working-directory: notes-cli
+        run: go test -v -race ./...
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: |
+            server/go.sum
+            notes-cli/go.sum
+
+      - name: Build server binary
+        working-directory: server
+        run: go build -o ../bin/notesd ./cmd/notesd
+
+      - name: Build notes-cli binary
+        working-directory: notes-cli
+        run: go build -o ../bin/notes-cli ./cmd/notes-cli
+
+      - name: Run integration tests
+        run: bash .github/scripts/integration-test.sh
