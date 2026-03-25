@@ -144,7 +144,9 @@ func (db *DB) UpsertTodo(t *model.Todo) (*model.Todo, error) {
 		return nil, err
 	}
 
-	if t.ModifiedAt.After(existing.ModifiedAt) {
+	// LWW: accept if incoming timestamp is newer, or equal with higher device ID
+	if t.ModifiedAt.After(existing.ModifiedAt) ||
+		(t.ModifiedAt.Equal(existing.ModifiedAt) && t.ModifiedByDevice > existing.ModifiedByDevice) {
 		_, err := db.sql.Exec(
 			`UPDATE todos SET note_id = ?, line_ref = ?, content = ?, due_date = ?,
 			 completed = ?, modified_at = ?, modified_by_device = ?, deleted_at = ?

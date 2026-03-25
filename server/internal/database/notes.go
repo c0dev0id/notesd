@@ -149,8 +149,9 @@ func (db *DB) UpsertNote(n *model.Note) (*model.Note, error) {
 		return nil, err
 	}
 
-	// LWW: accept only if incoming timestamp is strictly newer
-	if n.ModifiedAt.After(existing.ModifiedAt) {
+	// LWW: accept if incoming timestamp is newer, or equal with higher device ID
+	if n.ModifiedAt.After(existing.ModifiedAt) ||
+		(n.ModifiedAt.Equal(existing.ModifiedAt) && n.ModifiedByDevice > existing.ModifiedByDevice) {
 		_, err := db.sql.Exec(
 			`UPDATE notes SET title = ?, content = ?, type = ?, modified_at = ?,
 			 modified_by_device = ?, deleted_at = ?

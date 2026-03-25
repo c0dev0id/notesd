@@ -621,6 +621,60 @@ func TestSyncPushConflict(t *testing.T) {
 	}
 }
 
+func TestSyncPushConflictTiebreaker(t *testing.T) {
+	e := setup(t)
+	token, user := e.registerAndLogin(t)
+
+	// Arrange — seed a note directly with device "zzz-high"
+	sameTime := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
+	serverNote := model.Note{
+		ID: model.NewID(), UserID: user.ID,
+		Title: "High Device", Content: "high device wins",
+		Type: "note", ModifiedAt: sameTime, ModifiedByDevice: "zzz-high",
+		CreatedAt: sameTime,
+	}
+	if err := e.db.CreateNote(&serverNote); err != nil {
+		t.Fatalf("seed note: %v", err)
+	}
+	t.Logf("seeded note: id=%s device=%s", serverNote.ID, serverNote.ModifiedByDevice)
+
+	// Act — push same timestamp but lower device ID (should lose)
+	pushReq := model.SyncPushRequest{
+		Notes: []model.Note{{
+			ID: serverNote.ID, UserID: user.ID,
+			Title: "Low Device", Content: "low device loses",
+			Type: "note", ModifiedAt: sameTime, ModifiedByDevice: "aaa-low",
+			CreatedAt: sameTime,
+		}},
+	}
+	resp := e.doJSON(t, "POST", "/api/v1/sync/push", pushReq, token)
+	var pushResp model.SyncPushResponse
+	decodeBody(t, resp, &pushResp)
+	t.Logf("tiebreaker push: accepted=%d conflicts=%d", pushResp.Accepted, len(pushResp.Conflicts))
+	if len(pushResp.Conflicts) != 1 {
+		t.Errorf("expected 1 conflict (low device loses), got %d", len(pushResp.Conflicts))
+	}
+
+	// Push same timestamp with higher device ID (should win)
+	pushReq.Notes[0].ModifiedByDevice = "zzz-higher"
+	pushReq.Notes[0].Title = "Higher Device"
+	pushReq.Notes[0].Content = "higher device wins"
+	resp = e.doJSON(t, "POST", "/api/v1/sync/push", pushReq, token)
+	decodeBody(t, resp, &pushResp)
+	t.Logf("tiebreaker push (higher): accepted=%d conflicts=%d", pushResp.Accepted, len(pushResp.Conflicts))
+	if pushResp.Accepted != 1 {
+		t.Errorf("expected 1 accepted (higher device wins), got %d", pushResp.Accepted)
+	}
+
+	resp = e.doJSON(t, "GET", "/api/v1/notes/"+serverNote.ID, nil, token)
+	var n model.Note
+	decodeBody(t, resp, &n)
+	t.Logf("final note: title=%q device=%s", n.Title, n.ModifiedByDevice)
+	if n.Title != "Higher Device" {
+		t.Errorf("higher device ID should win tiebreaker, got title %q", n.Title)
+	}
+}
+
 // --- User isolation test ---
 
 func TestUserIsolation(t *testing.T) {
