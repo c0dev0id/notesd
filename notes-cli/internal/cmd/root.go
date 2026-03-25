@@ -3,19 +3,23 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/c0dev0id/notesd/notes-cli/internal/client"
+	"github.com/c0dev0id/notesd/notes-cli/internal/store"
+	"github.com/c0dev0id/notesd/notes-cli/internal/sync"
 	"github.com/spf13/cobra"
 )
 
 var cl *client.Client
+var st *store.Store
+var sy *sync.Syncer
 
 var rootCmd = &cobra.Command{
-	Use:   "notesd",
-	Short: "notesd CLI client",
-	Long:  "Command-line client for the notesd notes and todo server.",
+	Use:          "notes-cli",
+	Short:        "notes-cli — offline-first notes and todo client",
+	SilenceUsage: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		// Skip client init for login/register (they set up the client themselves)
 		if cmd.Name() == "login" || cmd.Name() == "register" {
 			return nil
 		}
@@ -25,11 +29,17 @@ var rootCmd = &cobra.Command{
 			return err
 		}
 		if !cl.IsLoggedIn() && cmd.Name() != "help" {
-			return fmt.Errorf("not logged in — run: notesd login")
+			return fmt.Errorf("not logged in — run: notes-cli login")
 		}
+
+		dbPath := filepath.Join(cl.ConfigDir(), "notes.db")
+		st, err = store.Open(dbPath)
+		if err != nil {
+			return fmt.Errorf("open local store: %w", err)
+		}
+		sy = sync.New(st, cl, userID())
 		return nil
 	},
-	SilenceUsage: true,
 }
 
 func Execute() {
@@ -45,12 +55,23 @@ func init() {
 	rootCmd.AddCommand(notesCmd)
 	rootCmd.AddCommand(todosCmd)
 	rootCmd.AddCommand(searchCmd)
+	rootCmd.AddCommand(syncCmd)
 }
 
-// requireLogin is a helper for commands that need auth.
-func requireLogin() error {
-	if cl == nil || !cl.IsLoggedIn() {
-		return fmt.Errorf("not logged in — run: notesd login")
+func userID() string {
+	if cl == nil || cl.SessionInfo() == nil {
+		return ""
 	}
-	return nil
+	return cl.SessionInfo().UserID
+}
+
+// syncQuietly runs a sync after a write command. Errors go to stderr; success
+// is silent so as not to clutter command output.
+func syncQuietly() {
+	if sy == nil {
+		return
+	}
+	if _, err := sy.Sync(); err != nil {
+		fmt.Fprintf(os.Stderr, "sync: %v\n", err)
+	}
 }

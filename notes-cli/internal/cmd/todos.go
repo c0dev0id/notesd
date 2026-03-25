@@ -2,29 +2,12 @@ package cmd
 
 import (
 	"fmt"
-	"net/http"
+	"strings"
 	"time"
 
+	"github.com/c0dev0id/notesd/notes-cli/internal/model"
 	"github.com/spf13/cobra"
 )
-
-type Todo struct {
-	ID               string     `json:"id"`
-	Content          string     `json:"content"`
-	Completed        bool       `json:"completed"`
-	DueDate          *time.Time `json:"due_date,omitempty"`
-	NoteID           *string    `json:"note_id,omitempty"`
-	ModifiedAt       time.Time  `json:"modified_at"`
-	ModifiedByDevice string     `json:"modified_by_device"`
-	CreatedAt        time.Time  `json:"created_at"`
-}
-
-type TodoListResponse struct {
-	Todos  []Todo `json:"todos"`
-	Total  int    `json:"total"`
-	Limit  int    `json:"limit"`
-	Offset int    `json:"offset"`
-}
 
 var todosCmd = &cobra.Command{
 	Use:   "todos",
@@ -78,15 +61,10 @@ func init() {
 
 func runTodosList(cmd *cobra.Command, args []string) error {
 	overdue, _ := cmd.Flags().GetBool("overdue")
-
 	if overdue {
-		var todos []Todo
-		status, err := cl.DoJSON("GET", "/api/v1/todos/overdue", nil, &todos)
+		todos, err := st.GetOverdueTodos(userID())
 		if err != nil {
 			return err
-		}
-		if status != http.StatusOK {
-			return fmt.Errorf("unexpected status %d", status)
 		}
 		if len(todos) == 0 {
 			fmt.Println("No overdue todos.")
@@ -98,63 +76,55 @@ func runTodosList(cmd *cobra.Command, args []string) error {
 
 	limit, _ := cmd.Flags().GetInt("limit")
 	offset, _ := cmd.Flags().GetInt("offset")
-
-	var resp TodoListResponse
-	status, err := cl.DoJSON("GET", fmt.Sprintf("/api/v1/todos?limit=%d&offset=%d", limit, offset), nil, &resp)
+	todos, total, err := st.ListTodos(userID(), limit, offset)
 	if err != nil {
 		return err
 	}
-	if status != http.StatusOK {
-		return fmt.Errorf("unexpected status %d", status)
-	}
-
-	if len(resp.Todos) == 0 {
+	if len(todos) == 0 {
 		fmt.Println("No todos.")
 		return nil
 	}
-
-	printTodos(resp.Todos)
-	if resp.Total > resp.Offset+len(resp.Todos) {
-		fmt.Printf("\nShowing %d-%d of %d todos\n",
-			resp.Offset+1, resp.Offset+len(resp.Todos), resp.Total)
+	printTodos(todos)
+	if total > offset+len(todos) {
+		fmt.Printf("\nShowing %d-%d of %d todos\n", offset+1, offset+len(todos), total)
 	}
 	return nil
 }
 
 func runTodosShow(cmd *cobra.Command, args []string) error {
-	var todo Todo
-	status, err := cl.DoJSON("GET", "/api/v1/todos/"+args[0], nil, &todo)
+	t, err := st.GetTodo(args[0], userID())
 	if err != nil {
 		return err
 	}
-	if status == http.StatusNotFound {
-		return fmt.Errorf("todo not found")
-	}
-
 	check := "[ ]"
-	if todo.Completed {
+	if t.Completed {
 		check = "[x]"
 	}
-	fmt.Printf("ID:        %s\n", todo.ID)
+	fmt.Printf("ID:        %s\n", t.ID)
 	fmt.Printf("Status:    %s\n", check)
-	fmt.Printf("Content:   %s\n", todo.Content)
-	if todo.DueDate != nil {
-		fmt.Printf("Due:       %s\n", todo.DueDate.Local().Format("2006-01-02"))
+	fmt.Printf("Content:   %s\n", t.Content)
+	if t.DueDate != nil {
+		fmt.Printf("Due:       %s\n", t.DueDate.Local().Format("2006-01-02"))
 	}
-	if todo.NoteID != nil {
-		fmt.Printf("Note:      %s\n", *todo.NoteID)
+	if t.NoteID != nil {
+		fmt.Printf("Note:      %s\n", *t.NoteID)
 	}
-	fmt.Printf("Modified:  %s\n", todo.ModifiedAt.Local().Format(time.RFC3339))
-	fmt.Printf("Created:   %s\n", todo.CreatedAt.Local().Format(time.RFC3339))
+	fmt.Printf("Modified:  %s\n", t.ModifiedAt.Local().Format(time.RFC3339))
+	fmt.Printf("Created:   %s\n", t.CreatedAt.Local().Format(time.RFC3339))
 	return nil
 }
 
 func runTodosCreate(cmd *cobra.Command, args []string) error {
-	content := joinArgs(args)
+	content := strings.Join(args, " ")
 
-	req := map[string]any{
-		"content":   content,
-		"device_id": cl.DeviceID(),
+	now := model.NowMillis()
+	t := &model.Todo{
+		ID:               model.NewID(),
+		UserID:           userID(),
+		Content:          content,
+		ModifiedAt:       now,
+		ModifiedByDevice: cl.DeviceID(),
+		CreatedAt:        now,
 	}
 
 	dueStr, _ := cmd.Flags().GetString("due")
@@ -163,65 +133,49 @@ func runTodosCreate(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("invalid due date (use YYYY-MM-DD): %w", err)
 		}
-		req["due_date"] = due.UTC()
+		t.DueDate = &due
 	}
 
 	noteID, _ := cmd.Flags().GetString("note")
 	if noteID != "" {
-		req["note_id"] = noteID
+		t.NoteID = &noteID
 	}
 
-	var todo Todo
-	status, err := cl.DoJSON("POST", "/api/v1/todos", req, &todo)
-	if err != nil {
+	if err := st.CreateTodo(t); err != nil {
 		return err
 	}
-	if status != http.StatusCreated {
-		return fmt.Errorf("unexpected status %d", status)
-	}
-
-	fmt.Printf("Created todo %s\n", todo.ID)
+	fmt.Printf("Created todo %s\n", t.ID)
+	go syncQuietly()
 	return nil
 }
 
 func runTodosComplete(cmd *cobra.Command, args []string) error {
-	req := map[string]any{
-		"completed": true,
-		"device_id": cl.DeviceID(),
-	}
-
-	var todo Todo
-	status, err := cl.DoJSON("PUT", "/api/v1/todos/"+args[0], req, &todo)
+	t, err := st.GetTodo(args[0], userID())
 	if err != nil {
 		return err
 	}
-	if status == http.StatusNotFound {
-		return fmt.Errorf("todo not found")
+	t.Completed = true
+	t.ModifiedAt = model.NowMillis()
+	t.ModifiedByDevice = cl.DeviceID()
+	if err := st.UpdateTodo(t); err != nil {
+		return err
 	}
-	if status != http.StatusOK {
-		return fmt.Errorf("unexpected status %d", status)
-	}
-
-	fmt.Printf("Completed: %s\n", todo.Content)
+	fmt.Printf("Completed: %s\n", t.Content)
+	go syncQuietly()
 	return nil
 }
 
 func runTodosDelete(cmd *cobra.Command, args []string) error {
-	status, err := cl.DoJSON("DELETE", "/api/v1/todos/"+args[0], nil, nil)
-	if err != nil {
+	now := model.NowMillis()
+	if err := st.DeleteTodo(args[0], userID(), now.UnixMilli(), cl.DeviceID()); err != nil {
 		return err
 	}
-	if status == http.StatusNotFound {
-		return fmt.Errorf("todo not found")
-	}
-	if status != http.StatusNoContent {
-		return fmt.Errorf("unexpected status %d", status)
-	}
 	fmt.Printf("Deleted todo %s\n", args[0])
+	go syncQuietly()
 	return nil
 }
 
-func printTodos(todos []Todo) {
+func printTodos(todos []model.Todo) {
 	for _, t := range todos {
 		check := "[ ]"
 		if t.Completed {
@@ -233,15 +187,4 @@ func printTodos(todos []Todo) {
 		}
 		fmt.Printf("%s  %s  %s  %s\n", check, t.ID, due, t.Content)
 	}
-}
-
-func joinArgs(args []string) string {
-	result := ""
-	for i, a := range args {
-		if i > 0 {
-			result += " "
-		}
-		result += a
-	}
-	return result
 }

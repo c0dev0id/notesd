@@ -1,34 +1,15 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"os/exec"
 	"strings"
 	"time"
 
+	"github.com/c0dev0id/notesd/notes-cli/internal/model"
 	"github.com/spf13/cobra"
 )
-
-type Note struct {
-	ID               string     `json:"id"`
-	Title            string     `json:"title"`
-	Content          string     `json:"content"`
-	Type             string     `json:"type"`
-	ModifiedAt       time.Time  `json:"modified_at"`
-	ModifiedByDevice string     `json:"modified_by_device"`
-	DeletedAt        *time.Time `json:"deleted_at,omitempty"`
-	CreatedAt        time.Time  `json:"created_at"`
-}
-
-type NoteListResponse struct {
-	Notes  []Note `json:"notes"`
-	Total  int    `json:"total"`
-	Limit  int    `json:"limit"`
-	Offset int    `json:"offset"`
-}
 
 var notesCmd = &cobra.Command{
 	Use:   "notes",
@@ -83,21 +64,15 @@ func runNotesList(cmd *cobra.Command, args []string) error {
 	limit, _ := cmd.Flags().GetInt("limit")
 	offset, _ := cmd.Flags().GetInt("offset")
 
-	var resp NoteListResponse
-	status, err := cl.DoJSON("GET", fmt.Sprintf("/api/v1/notes?limit=%d&offset=%d", limit, offset), nil, &resp)
+	notes, total, err := st.ListNotes(userID(), limit, offset)
 	if err != nil {
 		return err
 	}
-	if status != http.StatusOK {
-		return fmt.Errorf("unexpected status %d", status)
-	}
-
-	if len(resp.Notes) == 0 {
+	if len(notes) == 0 {
 		fmt.Println("No notes.")
 		return nil
 	}
-
-	for _, n := range resp.Notes {
+	for _, n := range notes {
 		title := n.Title
 		if title == "" {
 			title = "(untitled)"
@@ -105,31 +80,25 @@ func runNotesList(cmd *cobra.Command, args []string) error {
 		fmt.Printf("%-38s  %-6s  %s  %s\n",
 			n.ID, n.Type, n.ModifiedAt.Local().Format("2006-01-02 15:04"), title)
 	}
-	if resp.Total > resp.Offset+len(resp.Notes) {
-		fmt.Printf("\nShowing %d-%d of %d notes\n",
-			resp.Offset+1, resp.Offset+len(resp.Notes), resp.Total)
+	if total > offset+len(notes) {
+		fmt.Printf("\nShowing %d-%d of %d notes\n", offset+1, offset+len(notes), total)
 	}
 	return nil
 }
 
 func runNotesShow(cmd *cobra.Command, args []string) error {
-	var note Note
-	status, err := cl.DoJSON("GET", "/api/v1/notes/"+args[0], nil, &note)
+	n, err := st.GetNote(args[0], userID())
 	if err != nil {
 		return err
 	}
-	if status == http.StatusNotFound {
-		return fmt.Errorf("note not found")
-	}
-
-	fmt.Printf("ID:       %s\n", note.ID)
-	fmt.Printf("Title:    %s\n", note.Title)
-	fmt.Printf("Type:     %s\n", note.Type)
-	fmt.Printf("Modified: %s\n", note.ModifiedAt.Local().Format(time.RFC3339))
-	fmt.Printf("Created:  %s\n", note.CreatedAt.Local().Format(time.RFC3339))
-	if note.Content != "" {
+	fmt.Printf("ID:       %s\n", n.ID)
+	fmt.Printf("Title:    %s\n", n.Title)
+	fmt.Printf("Type:     %s\n", n.Type)
+	fmt.Printf("Modified: %s\n", n.ModifiedAt.Local().Format(time.RFC3339))
+	fmt.Printf("Created:  %s\n", n.CreatedAt.Local().Format(time.RFC3339))
+	if n.Content != "" {
 		fmt.Println()
-		fmt.Println(note.Content)
+		fmt.Println(n.Content)
 	}
 	return nil
 }
@@ -139,7 +108,6 @@ func runNotesCreate(cmd *cobra.Command, args []string) error {
 	content, _ := cmd.Flags().GetString("content")
 	noteType, _ := cmd.Flags().GetString("type")
 
-	// If no content flag, open $EDITOR
 	if content == "" && title == "" {
 		var err error
 		title, content, err = editInEditor("", "")
@@ -148,83 +116,61 @@ func runNotesCreate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	req := map[string]string{
-		"title":     title,
-		"content":   content,
-		"type":      noteType,
-		"device_id": cl.DeviceID(),
+	now := model.NowMillis()
+	n := &model.Note{
+		ID:               model.NewID(),
+		UserID:           userID(),
+		Title:            title,
+		Content:          content,
+		Type:             noteType,
+		ModifiedAt:       now,
+		ModifiedByDevice: cl.DeviceID(),
+		CreatedAt:        now,
 	}
-
-	var note Note
-	status, err := cl.DoJSON("POST", "/api/v1/notes", req, &note)
-	if err != nil {
+	if err := st.CreateNote(n); err != nil {
 		return err
 	}
-	if status != http.StatusCreated {
-		return fmt.Errorf("unexpected status %d", status)
-	}
-
-	fmt.Printf("Created note %s\n", note.ID)
+	fmt.Printf("Created note %s\n", n.ID)
+	go syncQuietly()
 	return nil
 }
 
 func runNotesEdit(cmd *cobra.Command, args []string) error {
-	// Fetch current note
-	var note Note
-	status, err := cl.DoJSON("GET", "/api/v1/notes/"+args[0], nil, &note)
+	n, err := st.GetNote(args[0], userID())
 	if err != nil {
 		return err
 	}
-	if status == http.StatusNotFound {
-		return fmt.Errorf("note not found")
-	}
-
-	// Open in editor
-	newTitle, newContent, err := editInEditor(note.Title, note.Content)
+	newTitle, newContent, err := editInEditor(n.Title, n.Content)
 	if err != nil {
 		return err
 	}
-
-	if newTitle == note.Title && newContent == note.Content {
+	if newTitle == n.Title && newContent == n.Content {
 		fmt.Println("No changes.")
 		return nil
 	}
-
-	req := map[string]any{
-		"title":     newTitle,
-		"content":   newContent,
-		"device_id": cl.DeviceID(),
-	}
-
-	var updated Note
-	status, err = cl.DoJSON("PUT", "/api/v1/notes/"+args[0], req, &updated)
-	if err != nil {
+	n.Title = newTitle
+	n.Content = newContent
+	n.ModifiedAt = model.NowMillis()
+	n.ModifiedByDevice = cl.DeviceID()
+	if err := st.UpdateNote(n); err != nil {
 		return err
 	}
-	if status != http.StatusOK {
-		return fmt.Errorf("unexpected status %d", status)
-	}
-
-	fmt.Printf("Updated note %s\n", updated.ID)
+	fmt.Printf("Updated note %s\n", n.ID)
+	go syncQuietly()
 	return nil
 }
 
 func runNotesDelete(cmd *cobra.Command, args []string) error {
-	status, err := cl.DoJSON("DELETE", "/api/v1/notes/"+args[0], nil, nil)
-	if err != nil {
+	now := model.NowMillis()
+	if err := st.DeleteNote(args[0], userID(), now.UnixMilli(), cl.DeviceID()); err != nil {
 		return err
 	}
-	if status == http.StatusNotFound {
-		return fmt.Errorf("note not found")
-	}
-	if status != http.StatusNoContent {
-		return fmt.Errorf("unexpected status %d", status)
-	}
 	fmt.Printf("Deleted note %s\n", args[0])
+	go syncQuietly()
 	return nil
 }
 
-// editInEditor opens $EDITOR with a note in a simple text format:
+// editInEditor opens $EDITOR with note content in the format:
 //
 //	Title: <title>
 //	---
@@ -252,14 +198,13 @@ func editInEditor(title, content string) (string, string, error) {
 	}
 	tmpfile.Close()
 
-	// Get initial checksum
 	initialData, _ := os.ReadFile(tmpPath)
 
-	cmd := exec.Command(editor, tmpPath)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	c := exec.Command(editor, tmpPath)
+	c.Stdin = os.Stdin
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+	if err := c.Run(); err != nil {
 		return "", "", fmt.Errorf("editor: %w", err)
 	}
 
@@ -267,37 +212,18 @@ func editInEditor(title, content string) (string, string, error) {
 	if err != nil {
 		return "", "", fmt.Errorf("read temp file: %w", err)
 	}
-
-	// Check if unchanged
 	if string(data) == string(initialData) {
 		return title, content, nil
 	}
-
 	return parseEditorContent(string(data))
 }
 
 func parseEditorContent(s string) (string, string, error) {
-	// Format: "Title: <title>\n---\n<content>"
 	parts := strings.SplitN(s, "\n---\n", 2)
-	if len(parts) < 1 {
-		return "", "", fmt.Errorf("invalid format")
-	}
-
-	titleLine := parts[0]
-	title := strings.TrimPrefix(titleLine, "Title: ")
-	title = strings.TrimSpace(title)
-
+	title := strings.TrimSpace(strings.TrimPrefix(parts[0], "Title: "))
 	var content string
 	if len(parts) == 2 {
 		content = parts[1]
 	}
-
 	return title, content, nil
-}
-
-// printNoteJSON outputs a note as formatted JSON (for piping).
-func printNoteJSON(note Note) {
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	enc.Encode(note)
 }

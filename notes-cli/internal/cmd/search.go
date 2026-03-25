@@ -2,8 +2,7 @@ package cmd
 
 import (
 	"fmt"
-	"net/http"
-	"net/url"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -20,26 +19,19 @@ func init() {
 }
 
 func runSearch(cmd *cobra.Command, args []string) error {
-	query := joinArgs(args)
+	query := strings.Join(args, " ")
 	limit, _ := cmd.Flags().GetInt("limit")
 
-	var resp NoteListResponse
-	path := fmt.Sprintf("/api/v1/notes/search?q=%s&limit=%d", url.QueryEscape(query), limit)
-	status, err := cl.DoJSON("GET", path, nil, &resp)
+	notes, total, err := st.SearchNotes(userID(), query, limit, 0)
 	if err != nil {
 		return err
 	}
-	if status != http.StatusOK {
-		return fmt.Errorf("unexpected status %d", status)
-	}
-
-	if len(resp.Notes) == 0 {
+	if len(notes) == 0 {
 		fmt.Println("No results.")
 		return nil
 	}
-
-	fmt.Printf("Found %d notes matching %q:\n\n", resp.Total, query)
-	for _, n := range resp.Notes {
+	fmt.Printf("Found %d notes matching %q:\n\n", total, query)
+	for _, n := range notes {
 		title := n.Title
 		if title == "" {
 			title = "(untitled)"
