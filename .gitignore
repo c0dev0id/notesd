@@ -1,5 +1,6 @@
 *.db
 *.key
+bin/
 server/notesd
 notes-cli/notes-cli
 notes-cli/notes-tui

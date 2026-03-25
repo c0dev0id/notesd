@@ -1,17 +1,22 @@
 .PHONY: notesd notes notes-web clean test
 
+BIN := $(CURDIR)/bin
+
 notesd:
-	$(MAKE) -C server build
+	mkdir -p $(BIN)
+	$(MAKE) -C server BINDIR=$(BIN) build
 
 notes:
-	$(MAKE) -C notes-cli build
+	mkdir -p $(BIN)
+	$(MAKE) -C notes-cli BINDIR=$(BIN) build
 
 notes-web:
 	cd web && npm run build
 
 clean:
-	$(MAKE) -C server clean
-	$(MAKE) -C notes-cli clean
+	$(MAKE) -C server BINDIR=$(BIN) clean
+	$(MAKE) -C notes-cli BINDIR=$(BIN) clean
+	rmdir --ignore-fail-on-non-empty $(BIN)
 
 test:
 	$(MAKE) -C server test

@@ -1,11 +1,13 @@
 .PHONY: build clean test
 
+BINDIR ?= .
+
 build:
-	go build -o notes-cli ./cmd/notes-cli
-	go build -o notes-tui ./cmd/notes-tui
+	go build -o $(BINDIR)/notes-cli ./cmd/notes-cli
+	go build -o $(BINDIR)/notes-tui ./cmd/notes-tui
 
 test:
 	go test -v ./...
 
 clean:
-	rm -f notes-cli notes-tui
+	rm -f $(BINDIR)/notes-cli $(BINDIR)/notes-tui
