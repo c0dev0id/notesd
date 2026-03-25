@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/c0dev0id/notesd/cli/internal/client"
+	"github.com/c0dev0id/notesd/notes-cli/internal/client"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )

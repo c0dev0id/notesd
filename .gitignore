@@ -1,4 +1,6 @@
 *.db
 *.key
 notesd
+notes-cli
+notes-tui
 .claude/

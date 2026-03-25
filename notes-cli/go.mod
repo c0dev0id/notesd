@@ -1,4 +1,4 @@
-module github.com/c0dev0id/notesd/cli
+module github.com/c0dev0id/notesd/notes-cli
 
 go 1.24.0
 
