@@ -154,7 +154,7 @@ func runTodosCreate(cmd *cobra.Command, args []string) error {
 
 	req := map[string]any{
 		"content":   content,
-		"device_id": cl.DeviceID,
+		"device_id": cl.DeviceID(),
 	}
 
 	dueStr, _ := cmd.Flags().GetString("due")
@@ -187,7 +187,7 @@ func runTodosCreate(cmd *cobra.Command, args []string) error {
 func runTodosComplete(cmd *cobra.Command, args []string) error {
 	req := map[string]any{
 		"completed": true,
-		"device_id": cl.DeviceID,
+		"device_id": cl.DeviceID(),
 	}
 
 	var todo Todo

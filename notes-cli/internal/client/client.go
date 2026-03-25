@@ -13,7 +13,7 @@ import (
 
 type Client struct {
 	BaseURL    string
-	DeviceID   string
+	deviceID   string
 	httpClient *http.Client
 	configDir  string
 	session    *Session
@@ -57,7 +57,7 @@ func NewWithDir(configDir string) (*Client, error) {
 	cfg, _ := c.loadConfig()
 	if cfg != nil {
 		c.BaseURL = cfg.ServerURL
-		c.DeviceID = cfg.DeviceID
+		c.deviceID = cfg.DeviceID
 	}
 
 	// Load session
@@ -67,8 +67,8 @@ func NewWithDir(configDir string) (*Client, error) {
 	}
 
 	// Default device ID to hostname
-	if c.DeviceID == "" {
-		c.DeviceID, _ = os.Hostname()
+	if c.deviceID == "" {
+		c.deviceID, _ = os.Hostname()
 	}
 
 	return c, nil
@@ -76,6 +76,10 @@ func NewWithDir(configDir string) (*Client, error) {
 
 func (c *Client) IsLoggedIn() bool {
 	return c.session != nil && c.session.AccessToken != ""
+}
+
+func (c *Client) DeviceID() string {
+	return c.deviceID
 }
 
 func (c *Client) SessionInfo() *Session {
@@ -157,7 +161,7 @@ type AuthResponse struct {
 
 func (c *Client) Login(serverURL, email, password, deviceID string) error {
 	c.BaseURL = serverURL
-	c.DeviceID = deviceID
+	c.deviceID = deviceID
 
 	var resp AuthResponse
 	status, err := c.doJSONOnce("POST", "/api/v1/auth/login", map[string]string{

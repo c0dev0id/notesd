@@ -19,7 +19,7 @@ func newTestClient(t *testing.T, srv *httptest.Server) *Client {
 	if srv != nil {
 		c.BaseURL = srv.URL
 	}
-	c.DeviceID = "test-device"
+	c.deviceID = "test-device"
 	return c
 }
 

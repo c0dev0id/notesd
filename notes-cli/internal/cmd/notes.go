@@ -152,7 +152,7 @@ func runNotesCreate(cmd *cobra.Command, args []string) error {
 		"title":     title,
 		"content":   content,
 		"type":      noteType,
-		"device_id": cl.DeviceID,
+		"device_id": cl.DeviceID(),
 	}
 
 	var note Note
@@ -193,7 +193,7 @@ func runNotesEdit(cmd *cobra.Command, args []string) error {
 	req := map[string]any{
 		"title":     newTitle,
 		"content":   newContent,
-		"device_id": cl.DeviceID,
+		"device_id": cl.DeviceID(),
 	}
 
 	var updated Note

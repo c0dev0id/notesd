@@ -69,7 +69,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 
 	deviceID, _ := cmd.Flags().GetString("device")
 	if deviceID == "" {
-		deviceID = cl.DeviceID
+		deviceID = cl.DeviceID()
 	}
 
 	if err := cl.Login(serverURL, email, password, deviceID); err != nil {
